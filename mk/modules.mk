@@ -126,6 +126,7 @@ USE_GSM := $(shell [ -f $(SYSROOT)/include/gsm.h ] || \
 	[ -f $(SYSROOT)/local/include/gsm.h ] || \
 	[ -f $(SYSROOT)/local/include/gsm/gsm.h ] && echo "yes")
 USE_GST := $(shell pkg-config --exists gstreamer-1.0 && echo "yes")
+USE_GST_CUS := $(shell pkg-config --exists gstreamer-1.0 && echo "yes")
 USE_GST_VIDEO := $(shell pkg-config --exists gstreamer-1.0 gstreamer-app-1.0 \
 		&& echo "yes")
 USE_GTK := $(shell pkg-config 'gtk+-3.0 >= 3.0' && \
@@ -378,6 +379,9 @@ endif
 endif
 ifneq ($(USE_GST),)
 MODULES   += gst
+endif
+ifneq ($(USE_GST_CUS),)
+MODULES   += gst_cus
 endif
 ifneq ($(USE_GST_VIDEO),)
 MODULES   += gst_video
