@@ -44,10 +44,12 @@
  * </pre>
  */
 static struct ausrc *ausrc;
+static struct auplay *auplay;
 
 static int mod_gst_cus_init(void)
 {
 	gchar *s;
+	int err;
 
 	gst_init(0, NULL);
 
@@ -56,8 +58,11 @@ static int mod_gst_cus_init(void)
 	info("gst: init: %s\n", s);
 
 	g_free(s);
-
-	return ausrc_register(&ausrc, baresip_ausrcl(), "gst_cus", gst_alloc);
+	err = ausrc_register(&ausrc, baresip_ausrcl(),
+				   "gst_cus", gst_cus_src_alloc);
+	err |= auplay_register(&auplay, baresip_auplayl(),
+			       "gst_cus", gst_cus_play_alloc);
+	return err;
 }
 
 

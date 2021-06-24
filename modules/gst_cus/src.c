@@ -8,6 +8,7 @@
 #include <re.h>
 #include <rem.h>
 #include <baresip.h>
+#include "gst_cus.h"
 
 struct ausrc_st {
 	bool run;                   /**< Running flag            */
@@ -375,7 +376,7 @@ static void timeout(void *arg)
 }
 
 
-int gst_alloc(struct ausrc_st **stp, const struct ausrc *as,
+int gst_cus_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 		     struct media_ctx **ctx,
 		     struct ausrc_prm *prm, const char *device,
 		     ausrc_read_h *rh, ausrc_error_h *errh, void *arg)
