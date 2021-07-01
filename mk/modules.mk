@@ -479,4 +479,6 @@ ifneq ($(USE_RTCPSUMMARY),)
 MODULES   += rtcpsummary
 endif
 
+MODULES   += libdssipapp
+
 MODULES   += $(EXTRA_MODULES)
