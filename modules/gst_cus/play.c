@@ -117,12 +117,13 @@ static int setup_pipeline(struct auplay_st *st) {
     st->queue = gst_element_factory_make ("queue", NULL);
     st->convert = gst_element_factory_make ("audioconvert", NULL);
     st->resample = gst_element_factory_make ("audioresample", NULL);
-    st->sink = gst_element_factory_make ("alsasink", NULL);
+    st->sink = gst_element_factory_make ("interaudiosink", NULL);
 
     gst_audio_info_set_format (&info, GST_AUDIO_FORMAT_S16LE, st->prm.srate, st->prm.ch, NULL);
     audio_caps = gst_audio_info_to_caps (&info);
     g_object_set (st->appsrc, "caps", audio_caps, "format", GST_FORMAT_TIME, NULL);
     gst_caps_unref (audio_caps);
+	g_object_set (st->sink, "channel", "sipoutput", NULL);
 
     gst_bin_add_many (GST_BIN (st->pipeline),
         st->appsrc, st->queue, st->convert, st->resample, st->sink, NULL);

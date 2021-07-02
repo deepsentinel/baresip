@@ -2,7 +2,6 @@
 #define _POSIX_C_SOURCE 199309L
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <gst/gst.h>
 #include <unistd.h>
 #include <re.h>
@@ -12,7 +11,6 @@
 
 struct ausrc_st {
 	bool run;                   /**< Running flag            */
-	bool eos;                   /**< Reached end of stream   */
 	ausrc_read_h *rh;           /**< Read handler            */
 	ausrc_error_h *errh;        /**< Error handler           */
 	void *arg;                  /**< Handler argument        */
@@ -22,15 +20,9 @@ struct ausrc_st {
 	size_t sampc;
 	uint32_t ptime;
 
-	struct tmr tmr;
-
 	/* Gstreamer */
-	char *uri;
-	GstElement *pipeline, *bin, *source, *capsfilt, *sink;
+	GstElement *pipeline, *src, *caps, *sink;
 };
-
-static char *uri_regex = "([a-z][a-z0-9+.-]*):(?://).*";
-
 
 static GstBusSyncReply
 sync_handler(
@@ -48,8 +40,7 @@ sync_handler(
 
 		case GST_MESSAGE_EOS:
 			st->run = false;
-			st->eos = true;
-			return GST_BUS_DROP;
+			break;
 
 		case GST_MESSAGE_ERROR:
 			gst_message_parse_error(msg, &err, &d);
@@ -68,7 +59,7 @@ sync_handler(
 			g_error_free(err);
 
 			st->run = false;
-			return GST_BUS_DROP;
+			break;
 
 		case GST_MESSAGE_TAG:
 			gst_message_parse_tag(msg, &tag_list);
@@ -81,26 +72,26 @@ sync_handler(
 				info("gst: title: %s\n", title);
 				g_free(title);
 			}
-			return GST_BUS_DROP;
+			break;
 
 		default:
-			return GST_BUS_PASS;
+			break;
 	}
+	gst_message_unref(msg);
+	return GST_BUS_DROP;
 }
-
 
 static void format_check(struct ausrc_st *st, GstStructure *s)
 {
-	int rate, channels, width;
-	gboolean sign;
+	int rate, channels;
+	const char *format;
 
 	if (!st || !s)
 		return;
 
 	gst_structure_get_int(s, "rate", &rate);
 	gst_structure_get_int(s, "channels", &channels);
-	gst_structure_get_int(s, "width", &width);
-	gst_structure_get_boolean(s, "signed", &sign);
+	format = gst_structure_get_string(s, "format");
 
 	if ((int)st->prm.srate != rate) {
 		warning("gst: expected %u Hz (got %u Hz)\n", st->prm.srate,
@@ -110,11 +101,8 @@ static void format_check(struct ausrc_st *st, GstStructure *s)
 		warning("gst: expected %d channels (got %d)\n",
 			st->prm.ch, channels);
 	}
-	if (16 != width) {
-		warning("gst: expected 16-bit width (got %d)\n", width);
-	}
-	if (!sign) {
-		warning("gst: expected signed 16-bit format\n");
+	if (strcmp("S16LE", format)){
+		warning("gst: expected format S16LE (got %s)\n", format);
 	}
 }
 
@@ -199,102 +187,35 @@ static void handoff_handler(GstElement *sink, GstBuffer *buffer,
 }
 
 
-static void set_caps(struct ausrc_st *st)
-{
-	GstCaps *caps;
-
-	/* Set the capabilities we want */
-	caps = gst_caps_new_simple("audio/x-raw",
-				   "rate",     G_TYPE_INT,    st->prm.srate,
-				   "channels", G_TYPE_INT,    st->prm.ch,
-				   "width",    G_TYPE_INT,    16,
-				   "signed",   G_TYPE_BOOLEAN,true,
-				   NULL);
-
-	g_object_set(G_OBJECT(st->capsfilt), "caps", caps, NULL);
-}
-
-
-/**
- * Set up the Gstreamer pipeline. The playbin element is used to decode
- * all kinds of different formats. The capsfilter is used to deliver the
- * audio in a fixed format (X Hz, 1-2 channels, 16 bit signed)
- *
- * The pipeline looks like this:
- *
- * <pre>
- *  .--------------.    .------------------------------------------.
- *  |    playbin   |    |mybin    .------------.   .------------.  |
- *  |----.    .----|    |-----.   | capsfilter |   |  fakesink  |  |
- *  |sink|    |src |--->|ghost|   |----.   .---|   |----.   .---|  |    handoff
- *  |----'    '----|    |pad  |-->|sink|   |src|-->|sink|   |src|--+--> handler
- *  |              |    |-----'   '------------'   '------------'  |
- *  '--------------'    '------------------------------------------'
- * </pre>
- *
- * @param st Audio source state
- *
- * @return 0 if success, otherwise errorcode
- */
 static int gst_setup(struct ausrc_st *st)
 {
 	GstBus *bus;
-	GstPad *pad;
+	GstCaps *caps;
+
+	st->run = true;
 
 	st->pipeline = gst_pipeline_new("pipeline");
-	if (!st->pipeline) {
-		warning("gst: failed to create pipeline element\n");
-		return ENOMEM;
-	}
+	st->src = gst_element_factory_make("interaudiosrc", NULL);
+	st->caps = gst_element_factory_make("capsfilter", NULL);
+	st->sink = gst_element_factory_make("fakesink", NULL);
 
-	/********************* Player BIN **************************/
+	g_object_set(st->src, "channel", "sipinput", NULL);
+	g_object_set(st->sink, "async", false, 
+						"signal-handoffs", TRUE, NULL);
 
-	st->source = gst_element_factory_make("playbin", "source");
-	if (!st->source) {
-		warning("gst: failed to create playbin source element\n");
-		return ENOMEM;
-	}
+	caps = gst_caps_new_simple("audio/x-raw",
+				"format", G_TYPE_STRING, "S16LE",
+				"rate", G_TYPE_INT, st->prm.srate,
+				"channels", G_TYPE_INT, st->prm.ch,
+				   NULL);
+	g_object_set(G_OBJECT(st->caps), "caps", caps, NULL);
+	gst_caps_unref(caps);
 
-	/********************* My BIN **************************/
-
-	st->bin = gst_bin_new("mybin");
-
-	st->capsfilt = gst_element_factory_make("capsfilter", NULL);
-	if (!st->capsfilt) {
-		warning("gst: failed to create capsfilter element\n");
-		return ENOMEM;
-	}
-
-	set_caps(st);
-
-	st->sink = gst_element_factory_make("fakesink", "sink");
-	if (!st->sink) {
-		warning("gst: failed to create sink element\n");
-		return ENOMEM;
-	}
-
-	g_object_set(st->sink, "async", false, NULL);
-
-	gst_bin_add_many(GST_BIN(st->bin), st->capsfilt, st->sink, NULL);
-	gst_element_link_many(st->capsfilt, st->sink, NULL);
-
-	/* add ghostpad */
-	pad = gst_element_get_static_pad(st->capsfilt, "sink");
-	gst_element_add_pad(st->bin, gst_ghost_pad_new("sink", pad));
-	gst_object_unref(GST_OBJECT(pad));
-
-	/* put all elements in a bin */
-	gst_bin_add_many(GST_BIN(st->pipeline), st->source, NULL);
+	gst_bin_add_many(GST_BIN(st->pipeline), st->src, st->caps, st->sink, NULL);
+	gst_element_link_many(st->src, st->caps, st->sink, NULL);
 
 	/* Override audio-sink handoff handler */
 	g_signal_connect(st->sink, "handoff", G_CALLBACK(handoff_handler), st);
-	g_object_set(G_OBJECT(st->sink),
-		"signal-handoffs", TRUE,
-		"async", FALSE, NULL);
-
-	g_object_set(G_OBJECT(st->source), "audio-sink", st->bin, NULL);
-
-	/********************* Misc **************************/
 
 	/* Bus watch */
 	bus = gst_pipeline_get_bus(GST_PIPELINE(st->pipeline));
@@ -305,39 +226,8 @@ static int gst_setup(struct ausrc_st *st)
 		st, NULL);
 
 	gst_object_unref(bus);
-
-	/* Set URI */
-	g_object_set(G_OBJECT(st->source), "uri", st->uri, NULL);
-
 	return 0;
 }
-
-
-static int setup_uri(struct ausrc_st *st, const char *device)
-{
-	int err = 0;
-
-	if (g_regex_match_simple(
-		uri_regex, device, 0, G_REGEX_MATCH_NOTEMPTY)) {
-		err = str_dup(&st->uri, device);
-	}
-	else {
-		if (!access(device, R_OK)) {
-			size_t urilength = strlen(device) + 8;
-			char *uri = mem_alloc(urilength, NULL);
-			if (re_snprintf(uri, urilength, "file://%s",
-					device) < 0)
-				return ENOMEM;
-			st->uri = uri;
-		}
-		else {
-			err = errno;
-		}
-	}
-
-	return err;
-}
-
 
 static void gst_destructor(void *arg)
 {
@@ -347,34 +237,11 @@ static void gst_destructor(void *arg)
 		st->run = false;
 	}
 
-	tmr_cancel(&st->tmr);
-
 	gst_element_set_state(st->pipeline, GST_STATE_NULL);
 	gst_object_unref(GST_OBJECT(st->pipeline));
 
-	mem_deref(st->uri);
 	mem_deref(st->aubuf);
 }
-
-
-static void timeout(void *arg)
-{
-	struct ausrc_st *st = arg;
-	tmr_start(&st->tmr, st->ptime ? st->ptime : 40, timeout, st);
-
-	/* check if source is still running */
-	if (!st->run) {
-		tmr_cancel(&st->tmr);
-
-		if (st->eos) {
-			info("gst: end of file\n");
-			/* error handler must be called from re_main thread */
-			if (st->errh)
-				st->errh(0, "end of file", st->arg);
-		}
-	}
-}
-
 
 int gst_cus_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 		     struct media_ctx **ctx,
@@ -405,15 +272,12 @@ int gst_cus_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 	st->errh = errh;
 	st->arg  = arg;
 
-	err = setup_uri(st, device);
-	if (err) goto out;
-
 	st->ptime = prm->ptime;
 	if (!st->ptime)
 		st->ptime = 20;
 
 	if (!prm->srate)
-		prm->srate = 16000;
+		prm->srate = 8000;
 
 	if (!prm->ch)
 		prm->ch = 1;
@@ -430,11 +294,7 @@ int gst_cus_src_alloc(struct ausrc_st **stp, const struct ausrc *as,
 	if (err)
 		goto out;
 
-	st->run = true;
-	st->eos = false;
-
 	gst_element_set_state(st->pipeline, GST_STATE_PLAYING);
-	tmr_start(&st->tmr, st->ptime, timeout, st);
 
  out:
 	if (err)
