@@ -5,7 +5,11 @@
 extern "C" {
 #endif
 
-int start_sip(void);
+int simple_call(const char *uri);
+int simple_hangup(void);
+int simple_quit(void);
+int start_sip(const char *config_path);
+
 
 #ifdef __cplusplus
 }

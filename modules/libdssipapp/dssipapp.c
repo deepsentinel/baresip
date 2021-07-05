@@ -12,8 +12,9 @@
 #endif
 #include <re.h>
 #include <baresip.h>
+#include "dssipapp.h"
 
-
+static struct call *inner_call;
 static void signal_handler(int sig)
 {
 	static bool term = false;
@@ -60,17 +61,61 @@ static void tmr_quit_handler(void *arg)
 	ua_stop_all(false);
 }
 
-int start_sip(void)
+int simple_call(const char *uri)
+{
+	struct mbuf *uribuf = NULL;
+	char *complet_uri = NULL;
+	//struct call *call;
+	struct ua *ua;
+	int err = 0;
+
+	ua = uag_find_requri(uri);
+
+	uribuf = mbuf_alloc(64);
+	if (!uribuf)
+		return ENOMEM;
+
+	err = account_uri_complete(ua_account(ua), uribuf, uri);
+	if (err) {
+		printf("Error on account_uri_complete %d",err);
+		return EINVAL;
+	}
+
+	uribuf->pos = 0;
+	err = mbuf_strdup(uribuf, &complet_uri, uribuf->end);
+	if (err)
+		goto out;
+
+
+	err = ua_connect(ua, &inner_call, NULL, complet_uri, VIDMODE_ON);
+
+	printf("call id: %s\n", call_id(inner_call));
+
+out:
+	mem_deref(uribuf);
+	mem_deref(complet_uri);
+	return err;
+}
+
+int simple_hangup(void){
+	call_hangup(inner_call, call_scode(inner_call), "");
+	return 0;
+}
+
+int simple_quit(void){
+	ua_stop_all(false);
+	return 0;
+}
+
+int start_sip(const char *config_path)
 {
 	int af = AF_UNSPEC, run_daemon = false;
 	const char *ua_eprm = NULL;
-	const char *execmdv[16];
 	const char *net_interface = NULL;
 	const char *audio_path = NULL;
 	const char *modv[16];
 	struct tmr tmr_quit;
 	bool sip_trace = false;
-	size_t execmdc = 0;
 	size_t modc = 0;
 	size_t i;
 	uint32_t tmo = 0;
@@ -79,7 +124,7 @@ int start_sip(void)
 	/*
 	 * turn off buffering on stdout
 	 */
-	setbuf(stdout, NULL);
+	//setbuf(stdout, NULL);
 
 	(void)re_fprintf(stdout, "baresip v%s"
 			 " Copyright (C) 2010 - 2021"
@@ -87,6 +132,9 @@ int start_sip(void)
 			 BARESIP_VERSION);
 
 	(void)sys_coredump_set(true);
+
+	if(config_path != NULL)
+		conf_path_set(config_path);
 
 	err = libre_init();
 	if (err)
@@ -184,17 +232,12 @@ int start_sip(void)
 
 	info("baresip is ready.\n");
 
-	/* Execute any commands from input arguments */
-	for (i=0; i<execmdc; i++) {
-		ui_input_str(execmdv[i]);
-	}
-
 	if (tmo) {
 		tmr_start(&tmr_quit, tmo * 1000, tmr_quit_handler, NULL);
 	}
 
 	/* Main loop */
-	err = re_main(signal_handler);
+	err = re_main(NULL);
 
  out:
 	tmr_cancel(&tmr_quit);
@@ -214,7 +257,7 @@ int start_sip(void)
 	/* NOTE: modules must be unloaded after all application
 	 *       activity has stopped.
 	 */
-	debug("main: unloading modules..\n");
+	info("main: unloading modules..\n");
 	mod_close();
 
 	libre_close();

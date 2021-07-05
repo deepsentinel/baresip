@@ -316,6 +316,8 @@ install-shared: $(SHARED) libbaresip.pc
 	@mkdir -p $(DESTDIR)$(LIBDIR) $(DESTDIR)$(LIBDIR)/pkgconfig
 	$(INSTALL) -m 0644 $(SHARED) $(DESTDIR)$(LIBDIR)
 	$(INSTALL) -m 0644 libbaresip.pc $(DESTDIR)$(LIBDIR)/pkgconfig
+	$(INSTALL) -m 0644 libdssipapp.so $(DESTDIR)$(LIBDIR)
+	$(INSTALL) -Cm 0644 ./modules/libdssipapp/dssipapp.h $(DESTDIR)$(INCDIR)
 
 install-static: $(STATICLIB)
 	@mkdir -p $(DESTDIR)$(INCDIR)
