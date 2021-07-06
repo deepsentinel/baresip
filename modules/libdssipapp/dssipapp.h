@@ -8,8 +8,9 @@ extern "C" {
 int simple_call(const char *uri);
 int simple_hangup(void);
 int simple_quit(void);
-int start_sip(const char *config_path);
+int start_sip(const char *path);
 
+char config_path[250];
 
 #ifdef __cplusplus
 }

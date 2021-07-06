@@ -7,6 +7,8 @@
 #define __EXTENSIONS__ 1
 #endif
 #include <stdlib.h>
+#include <string.h>
+#include <pthread.h>
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
@@ -15,23 +17,6 @@
 #include "dssipapp.h"
 
 static struct call *inner_call;
-static void signal_handler(int sig)
-{
-	static bool term = false;
-
-	if (term) {
-		module_app_unload();
-		mod_close();
-		exit(0);
-	}
-
-	term = true;
-
-	info("terminated by signal %d\n", sig);
-
-	ua_stop_all(false);
-}
-
 
 static void net_change_handler(void *arg)
 {
@@ -107,8 +92,8 @@ int simple_quit(void){
 	return 0;
 }
 
-int start_sip(const char *config_path)
-{
+
+static void *start_sip_instance(void *arg) {
 	int af = AF_UNSPEC, run_daemon = false;
 	const char *ua_eprm = NULL;
 	const char *net_interface = NULL;
@@ -121,6 +106,7 @@ int start_sip(const char *config_path)
 	uint32_t tmo = 0;
 	int err=0;
 
+	(void*)arg;
 	/*
 	 * turn off buffering on stdout
 	 */
@@ -133,8 +119,13 @@ int start_sip(const char *config_path)
 
 	(void)sys_coredump_set(true);
 
-	if(config_path != NULL)
+	if(strlen(config_path)>0){
+		info("config path: %s\n", config_path);
 		conf_path_set(config_path);
+	}
+	else
+		warning("Using default path\n");
+
 
 	err = libre_init();
 	if (err)
@@ -266,5 +257,14 @@ int start_sip(const char *config_path)
 	tmr_debug();
 	mem_debug();
 
-	return err;
+	//return err;
+	return NULL;
+}
+int start_sip(const char *path){
+	//Let it run in new thread. Otherwirse, it would block python thread
+	pthread_t t;
+
+	strcpy(config_path, path);
+	pthread_create(&t, NULL, start_sip_instance, NULL);
+	return 0;
 }

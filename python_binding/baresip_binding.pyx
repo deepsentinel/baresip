@@ -8,7 +8,7 @@ cdef extern from "dssipapp.h":
     cdef int simple_call(const char *uri)
     cdef int simple_hangup()
     cdef int simple_quit()
-    cdef int start_sip(const char *config_path)
+    cdef int start_sip(const char *path)
 
 def py2c_simple_call(uri: str):
     binary_uri = uri.encode('utf-8')
