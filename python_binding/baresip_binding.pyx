@@ -1,6 +1,5 @@
 import ctypes
-path = "/usr/local/lib/"
-module_path = "/usr/local/lib/baresip/modules/"
+path = "/data/ds_venv/lib/"
 baresip = ctypes.CDLL(path+"libbaresip.so", mode=ctypes.RTLD_GLOBAL)
 
 

@@ -141,7 +141,7 @@ INSTALL := install
 ifeq ($(DESTDIR),)
 PREFIX  := /usr/local
 else
-PREFIX  := /usr
+PREFIX  :=
 endif
 BINDIR	:= $(PREFIX)/bin
 INCDIR  := $(PREFIX)/include
